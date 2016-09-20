@@ -5,8 +5,8 @@
 #include <fstream>
 #include <string.h>
 
-#define MPI_NON_CLK_TAG 99
-#define MPI_CLK_TAG 199
+#define MPI_NON_CLK_TAG 199
+#define MPI_CLK_TAG 1999
 
 typedef struct{
     float clk;
@@ -20,7 +20,6 @@ class Predict{
             : data(load_data), nproc(total_num_proc), rank(my_rank){
         pctr = 0.0;
         MAX_ARRAY_SIZE = 1000;
-        MAX_BUF_SIZE = 2048;
         g_all_non_clk = new float[MAX_ARRAY_SIZE];
         g_all_clk = new float[MAX_ARRAY_SIZE];
         g_nclk = new float[MAX_ARRAY_SIZE];
@@ -28,17 +27,15 @@ class Predict{
     }
     ~Predict(){}
 
-    void predict(std::vector<float> glo_w){
-        std::cout<<"glo_w size "<<glo_w.size()<<std::endl;
-        std::vector<float> predict_result;
+    void predict(double* glo_w){
         for(int i = 0; i < data->fea_matrix.size(); i++) {
 	        float x = 0.0;
             for(int j = 0; j < data->fea_matrix[i].size(); j++) {
                 int idx = data->fea_matrix[i][j].idx;
                 float val = data->fea_matrix[i][j].val;
                 x += glo_w[idx] * val;
+
             }
-        
             if(x < -30){
                 pctr = 1e-6;
             }
@@ -49,17 +46,13 @@ class Predict{
                 double ex = pow(2.718281828, x);
                 pctr = ex / (1.0 + ex);
             }
-
+            
             int id = int(pctr*MAX_ARRAY_SIZE);
             clkinfo clickinfo;
             clickinfo.clk = data->label[i];
             clickinfo.nclk = 1 - data->label[i];
             clickinfo.idx = id;
             result_list.push_back(clickinfo);
-        }
-    
-        for(size_t j = 0; j < predict_result.size(); j++){
-	        std::cout<<predict_result[j]<<"\t"<<1 - data->label[j]<<"\t"<<data->label[j]<<std::endl;
         }
     }
 
@@ -76,20 +69,20 @@ class Predict{
     }
 
     int auc_cal(float* all_clk, float* all_nclk, double& auc_res){
-            double clk_sum = 0.0;
-            double nclk_sum = 0.0;
-            double old_clk_sum = 0.0;
-            double clksum_multi_nclksum = 0.0;
-            double auc = 0.0;
-            auc_res = 0.0;
-            for(int i = 0; i < MAX_ARRAY_SIZE; i++){
-                    old_clk_sum = clk_sum;
-                    clk_sum += all_clk[i];
-                    nclk_sum += all_nclk[i];
-                    auc += (old_clk_sum + clk_sum) * all_nclk[i] / 2;
-            }
-            clksum_multi_nclksum = clk_sum * nclk_sum;
-            auc_res = auc/(clksum_multi_nclksum);
+        double clk_sum = 0.0;
+        double nclk_sum = 0.0;
+        double old_clk_sum = 0.0;
+        double clksum_multi_nclksum = 0.0;
+        double auc = 0.0;
+        auc_res = 0.0;
+        for(int i = 0; i < MAX_ARRAY_SIZE; i++){
+            old_clk_sum = clk_sum;
+            clk_sum += all_clk[i];
+            nclk_sum += all_nclk[i];
+            auc += (old_clk_sum + clk_sum) * all_nclk[i] / 2;
+        }
+        clksum_multi_nclksum = clk_sum * nclk_sum;
+        auc_res = auc/(clksum_multi_nclksum);
     }
 
     int mpi_auc(int nprocs, int rank, double& auc){
@@ -115,18 +108,15 @@ class Predict{
         }
     }
 
-    void run(std::vector<float> w){
+    void run(double* w){
         predict(w);
-        double total_clk = 0.0;
-        double total_nclk = 0.0;
         double auc = 0.0;
         double total_auc = 0.0;
-
         merge_clk();
         mpi_auc(nproc, rank, auc);
 
         if(MASTER_ID == rank){
-                printf("AUC = %lf\n", auc);
+            printf("AUC = %lf\n", auc);
         }
 
     }
@@ -135,7 +125,6 @@ class Predict{
     Load_Data* data;
     std::vector<clkinfo> result_list;
     int MAX_ARRAY_SIZE;
-    int MAX_BUF_SIZE;
     float* g_all_non_clk;
     float* g_all_clk;
     float* g_nclk;
